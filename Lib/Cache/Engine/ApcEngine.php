@@ -33,6 +33,9 @@ class ApcEngine extends CacheEngine {
  **/
 	protected $_compiledGroupNames = array();
 
+	public $fileEngine = false;
+	public $settings   = array();
+
 /**
  * Initialize the Cache Engine
  *
@@ -48,6 +51,7 @@ class ApcEngine extends CacheEngine {
 			$settings['prefix'] = Inflector::slug(APP_DIR) . '_';
 		}
 		$settings += array('engine' => 'Apc');
+		$this->settings = $settings;
 		parent::init($settings);
 		return function_exists('apc_dec');
 	}
@@ -66,8 +70,17 @@ class ApcEngine extends CacheEngine {
 		} else {
 			$expires = time() + $duration;
 		}
+
 		apc_store($key . '_expires', $expires, $duration);
-		return apc_store($key, $value, $duration);
+		$apc = apc_store($key, $value, $duration);
+
+		//  from cli, write to file as well
+		if(php_sapi_name() === 'cli') {
+			$this->file_start();
+			return $this->fileEngine->write($key, $value, $duration);
+		}
+
+		return $apc;
 	}
 
 /**
@@ -80,9 +93,27 @@ class ApcEngine extends CacheEngine {
 		$time = time();
 		$cachetime = intval(apc_fetch($key . '_expires'));
 		if ($cachetime !== 0 && ($cachetime < $time || ($time + $this->settings['duration']) < $cachetime)) {
+			//  check if File has it cached
+			$this->file_start();
+			if(($data = $this->fileEngine->read($key)) !== false) {
+				echo '<pre>';print_r('here');exit;
+			}
+
 			return false;
 		}
-		return apc_fetch($key);
+
+		$data = apc_fetch($key);
+
+		if(!$data) {
+			//  check if File has it cached
+			$this->file_start();
+			if(($data = $this->fileEngine->read($key)) !== false) {
+				$this->write($key, $data, $this->settings['duration']);
+				return $data;
+			}
+		}
+
+		return $data;
 	}
 
 /**
@@ -183,4 +214,13 @@ class ApcEngine extends CacheEngine {
 		return $success;
 	}
 
+	public function file_start() {
+		if(!$this->fileEngine) {
+			$settings = $this->settings;
+			$settings['engine'] = 'File';
+			App::uses('FileEngine','Cache/Engine');
+			$this->fileEngine = new FileEngine();
+			$this->fileEngine->init($settings);
+		}	
+	}
 }

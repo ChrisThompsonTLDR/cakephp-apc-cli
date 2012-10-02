@@ -146,6 +146,15 @@ class FileEngine extends CacheEngine {
 			$this->_File->flock(LOCK_UN);
 		}
 
+		if($success) {
+			$groups = null;
+			if (!empty($this->_groupPrefix)) {
+				$groups = vsprintf($this->_groupPrefix, $this->groups());
+			}
+			$dir = $this->settings['path'] . $groups;
+			chmod($dir . $key, 0777);
+		}
+
 		return $success;
 	}
 
@@ -369,5 +378,28 @@ class FileEngine extends CacheEngine {
 			}
 		}
 		return true;
+	}
+
+	public function get_expiration($key) {
+		if (!$this->_init || $this->_setKey($key) === false) {
+			return false;
+		}
+
+		if ($this->settings['lock']) {
+			$this->_File->flock(LOCK_SH);
+		}
+
+		$this->_File->rewind();
+		$time = time();
+		$cachetime = intval($this->_File->current());
+
+		if ($cachetime !== false && ($cachetime < $time || ($time + $this->settings['duration']) < $cachetime)) {
+			if ($this->settings['lock']) {
+				$this->_File->flock(LOCK_UN);
+			}
+			return false;
+		}
+
+		return $cachetime;
 	}
 }
